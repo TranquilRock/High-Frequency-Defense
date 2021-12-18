@@ -1,0 +1,3 @@
+- Training code is mainly from: https://github.com/kuangliu/pytorch-cifar
+- 11/08 update project structure, train*.py are not yet modified.
+- 11/09 Custom Loss needs to be done.
