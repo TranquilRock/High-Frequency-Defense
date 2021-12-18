@@ -7,64 +7,56 @@ import torchvision.transforms as transforms
 
 import os
 
-from models import *
+import os, sys
+import auxModels
+sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 from utilities.attack import ifgsm
 from utilities.fftaugment import highPassFilter, highPassNoise, lowPassFilter
 from utilities.utils import progress_bar
-from utilities.environment import device, args, data_root, model_root
-from utilities.environment import *
-        
+from reverseResnet import *
 
+model_root = '/tmp2/aislab/OrdinaryHuman/checkpoint/'
 num_workers = 8
 best_acc = 0
 start_epoch = 0
-print('==> Preparing data..')
-data = torchvision.datasets.ImageNet
-data_setfolder = 'imagenet2012/'
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+data = torchvision.datasets.CIFAR100
+data_root = '/tmp2/dataset/'
+data_setfolder = 'cifar100/'
 batch_size = 64
-image_shape = (224,224)
+# image_shape = (32)
 #======================
 transform_test = [
-    transforms.Resize(image_shape), 
     transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ]
 
-if args.low >= 0:
-    transform_test.append(lowPassFilter(args.low))
-if args.high >= 0:
-    transform_test.append(highPassFilter(args.high))
-if args.noise >= 0:
-    transform_noise = transforms.Compose([
-                                transforms.Resize(image_shape), 
-                                transforms.ToTensor()])
-    noiseSet = data(root=data_root + data_setfolder, split='test', transform=transform_noise)
-    transform_test.append(highPassNoise(args.noise, args.eps, noiseSet))
-transform_test.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
-
-testset = data(root=data_root + data_setfolder, split='val', transform=transforms.Compose(transform_test))
+# testset = data(root=data_root + data_setfolder, split='val', transform=transforms.Compose(transform_test))
+testset = data(root=data_root + data_setfolder, train=False, transform=transforms.Compose(transform_test))
 testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=8)
 #=====================================================
 criterion = nn.CrossEntropyLoss()
-n_step = args.nepoch
+n_step = int(sys.argv[1])
 std = torch.tensor([0.229, 0.224, 0.225]).to(device).view(3, 1, 1)
 epsilon = 8 / 255/ std
 alpha = epsilon/ n_step
 
 #====================================================
-model_names = ['tune_noise25','tune_dwl_low25_noise25','tune_dwl_noise25','tune_low25noise25',]
+model_names = sys.argv[2:]
 for model_name in model_names:
-    print('==> Resuming from checkpoint..')
     assert os.path.isdir(model_root), 'Error: no checkpoint directory found!'
-    if model_name == 'tune_dwl_low25_noise25' or model_name == 'tune_low25noise25' or model_name == 'tune_noise25':
-        net = torchvision.models.resnet50(False, True,).to(device)
+    # net = auxModels.resnet18(nAux = 7).to(device)
+    # net = auxModels.reverseAuxModel(nAux=7)
+    net = ResNet18(nAux=7).to(device)
+    try:
+        checkpoint = torch.load(f'{model_root}{model_name}.pth')
+        net.load_state_dict(checkpoint['net'])
+    except:
         net = torch.nn.DataParallel(net, device_ids=[0])
-    else:
-        net = torchvision.models.resnet50(False, True,).to(device)
-    checkpoint = torch.load(f'{model_root}{model_name}.pth')
-    net.load_state_dict(checkpoint['net'])
+        checkpoint = torch.load(f'{model_root}{model_name}.pth')
+        net.load_state_dict(checkpoint['net']) 
     net.eval()
-    best_acc = checkpoint['acc']
-    print(f'Model {model_name} with best_acc: {best_acc}', file=stderr)
+    print(f'Model {model_name}', file=stderr)
 # ========================Model========================
     if True:
         test_loss = 0
